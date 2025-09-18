@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EventHub — Frontend</title>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    body{margin:0;padding:24px;background:#f5f7fb;color:#0f172a}
+    .container{max-width:960px;margin:0 auto}
+    h1{margin:0 0 18px}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:18px}
+    .card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(15,23,42,0.06)}
+    form .row{display:flex;gap:8px;margin-bottom:8px}
+    label{display:block;font-size:13px;margin-bottom:6px}
+    input,textarea,select{width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef;font-size:14px}
+    button{padding:10px 14px;border-radius:10px;border:0;background:#0ea5a4;color:#fff;font-weight:600;cursor:pointer}
+    .muted{color:#64748b;font-size:13px}
+    .events{display:flex;flex-direction:column;gap:12px}
+    .event{padding:12px;border-radius:10px;border:1px solid #eef2ff;background:linear-gradient(180deg,#fff,#fbfdff)}
+    .event h3{margin:0 0 6px}
+    .meta{font-size:13px;color:#475569;margin-bottom:8px}
+    .actions{display:flex;gap:8px}
+    .secondary{background:#fff;border:1px solid #c7d2fe;color:#3730a3}
+    .small{padding:8px 10px;border-radius:8px;font-size:13px}
+    .notice{padding:10px;border-radius:8px;background:#fff;box-shadow:0 6px 12px rgba(2,6,23,0.03);margin-bottom:12px}
+    .attendees{margin-top:8px;font-size:13px}
+    .hidden{display:none}
+    @media (max-width:840px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>EventHub — Frontend</h1>
+    <div class="grid">
+      <div>
+        <div class="card">
+          <div class="notice">
+            <div class="muted">This frontend talks to <code>/api/events</code> on the same origin by default. If your API is on another host, change <code>BASE_URL</code> in the script.</div>
+          </div>
+
+          <h2 style="font-size:18px;margin:0 0 12px">Create Event</h2>
+          <form id="createEventForm">
+            <div class="row">
+              <div style="flex:1">
+                <label>Title</label>
+                <input name="title" required />
+              </div>
+              <div style="width:140px">
+                <label>Date</label>
+                <input name="date" type="date" required />
+              </div>
+            </div>
+
+            <div class="row">
+              <div style="flex:1">
+                <label>Location</label>
+                <input name="location" required />
+              </div>
+              <div style="width:140px">
+                <label>Max Attendees</label>
+                <input name="maxAttendees" type="number" min="1" value="10" required />
+              </div>
+            </div>
+
+            <div style="margin-bottom:10px">
+              <label>Description</label>
+              <textarea name="description" rows="3"></textarea>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center">
+              <button type="submit">Create event</button>
+              <div id="createStatus" class="muted"></div>
+            </div>
+          </form>
+        </div>
+
+        <div style="height:18px"></div>
+
+        <div class="card">
+          <h2 style="font-size:18px;margin:0 0 12px">Upcoming Events</h2>
+          <div id="eventsList" class="events"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h2 style="font-size:16px;margin:0 0 12px">Register for an event</h2>
+          <form id="registerForm">
+            <label>Event</label>
+            <select id="eventSelect"></select>
+            <div style="margin-top:8px"><label>Name</label><input id="attName" required /></div>
+            <div style="margin-top:8px"><label>Email</label><input id="attEmail" type="email" required /></div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+              <button type="submit">Register</button>
+              <div id="regStatus" class="muted"></div>
+            </div>
+          </form>
+        </div>
+
+        <div style="height:18px"></div>
+
+        <div class="card">
+          <h2 style="font-size:16px;margin:0 0 12px">API Debug</h2>
+          <div class="muted">Response preview:</div>
+          <pre id="apiDebug" style="height:200px;overflow:auto;background:#0f172a;color:#fff;padding:12px;border-radius:8px;margin-top:8px;line-height:1.4;font-size:13px"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Default base — same origin. Change to 'https://your-deployment' if needed.
+    const BASE_URL = window.BASE_URL || window.location.origin;
+    const EVENTS_API = BASE_URL + '/api/events';
+
+    const eventsList = document.getElementById('eventsList');
+    const eventSelect = document.getElementById('eventSelect');
+    const apiDebug = document.getElementById('apiDebug');
+
+    function debug(obj){
+      try{apiDebug.textContent = JSON.stringify(obj, null, 2)}catch(e){apiDebug.textContent = String(obj)}
+    }
+
+    async function loadEvents(){
+      try{
+        const res = await fetch(EVENTS_API);
+        const data = await res.json();
+        debug(data);
+        renderEvents(data || []);
+      }catch(err){
+        debug({ error: 'Failed to load events', details: String(err) });
+      }
+    }
+
+    function renderEvents(events){
+      eventsList.innerHTML = '';
+      eventSelect.innerHTML = '';
+      if(!events.length){
+        eventsList.innerHTML = '<div class="muted">No events yet. Create one from the left.</div>';
+        eventSelect.innerHTML = '<option value="">(no events)</option>';
+        return;
+      }
+
+      events.forEach(ev => {
+        const div = document.createElement('div');
+        div.className = 'event';
+        const when = new Date(ev.date).toLocaleDateString();
+        div.innerHTML = `
+          <h3>${escapeHtml(ev.title)} <span style="font-size:12px;color:#475569">(${ev.status || 'upcoming'})</span></h3>
+          <div class="meta">${when} · ${escapeHtml(ev.location)} · ${ev.currentAttendees || 0}/${ev.maxAttendees}</div>
+          <div>${escapeHtml(ev.description || '')}</div>
+          <div class="actions" style="margin-top:10px">
+            <button class="small" onclick="openRegister('${ev.eventId}')">Register</button>
+            <button class="small secondary" onclick="showAttendees('${ev.eventId}')">Show attendees</button>
+          </div>
+          <div id="att-${ev.eventId}" class="attendees hidden"></div>
+        `;
+        eventsList.appendChild(div);
+
+        const opt = document.createElement('option');
+        opt.value = ev.eventId;
+        opt.textContent = `${ev.title} — ${when}`;
+        eventSelect.appendChild(opt);
+      });
+    }
+
+    function escapeHtml(s){
+      if(!s) return '';
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[c]);
+    }
+
+    function openRegister(eventId){
+      eventSelect.value = eventId;
+      document.getElementById('attName').focus();
+    }
+
+    async function showAttendees(eventId){
+      try{
+        const res = await fetch(EVENTS_API);
+        const events = await res.json();
+        const ev = events.find(e=>e.eventId===eventId);
+        const container = document.getElementById('att-'+eventId);
+        if(!ev || !container) return;
+        const list = (ev.attendees || []).map(a=>`<div>• ${escapeHtml(a.name)} — ${escapeHtml(a.email)}</div>`).join('') || '<div class="muted">No attendees yet</div>';
+        container.innerHTML = `<div style="margin-top:8px">${list}</div>`;
+        container.classList.toggle('hidden');
+      }catch(err){debug({error:'failed to fetch attendees', details:String(err)})}
+    }
+
+    // Create event
+    document.getElementById('createEventForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const f = e.target;
+      const payload = {
+        title: f.title.value.trim(),
+        description: f.description.value.trim(),
+        date: f.date.value,
+        location: f.location.value.trim(),
+        maxAttendees: Number(f.maxAttendees.value)
+      };
+
+      const status = document.getElementById('createStatus');
+      status.textContent = 'Creating…';
+      try{
+        const res = await fetch(EVENTS_API, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(payload)});
+        const body = await res.json();
+        debug(body);
+        if(res.ok){
+          status.textContent = 'Created ✓';
+          f.reset();
+          loadEvents();
+        }else{
+          status.textContent = body.error || 'Failed';
+        }
+      }catch(err){
+        status.textContent = 'Error';
+        debug({error:String(err)});
+      }
+      setTimeout(()=>status.textContent = '',2500);
+    });
+
+    // Register attendee
+    document.getElementById('registerForm').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const id = eventSelect.value;
+      const name = document.getElementById('attName').value.trim();
+      const email = document.getElementById('attEmail').value.trim();
+      const status = document.getElementById('regStatus');
+
+      if(!id){ status.textContent = 'Select an event'; return }
+      status.textContent='Registering…';
+
+      try{
+        const res = await fetch(`${EVENTS_API}/${encodeURIComponent(id)}/register`, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({name,email})});
+        const body = await res.json();
+        debug(body);
+        if(res.ok){
+          status.textContent = 'Registered ✓';
+          document.getElementById('registerForm').reset();
+          loadEvents();
+        }else{
+          status.textContent = body.error || 'Failed';
+        }
+      }catch(err){
+        status.textContent = 'Error';
+        debug({error:String(err)});
+      }
+      setTimeout(()=>status.textContent = '',2500);
+    });
+
+    // Initial load
+    loadEvents();
+  </script>
+</body>
+</html>
